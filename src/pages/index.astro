@@ -1,28 +1,35 @@
 ---
 import { Client } from '@notionhq/client';
 
-// 1. 初始化 Notion 客户端 (会自动读取 Cloudflare 里的环境变量)
-const notion = new Client({ auth: import.meta.env.NOTION_TOKEN });
-const dbId = import.meta.env.NOTION_DATABASE_ID;
+// 🚀 核心修复：同时兼容本地开发 (import.meta.env) 和 Cloudflare 边缘环境 (Astro.locals.runtime.env)
+const token = import.meta.env.NOTION_TOKEN || Astro.locals.runtime?.env?.NOTION_TOKEN;
+const dbId = import.meta.env.NOTION_DATABASE_ID || Astro.locals.runtime?.env?.NOTION_DATABASE_ID;
 
 let posts = [];
 let errorMsg = '';
 
-// 2. 动态请求 Notion 数据
 try {
+  // 增加空值拦截，防止容器崩溃
+  if (!token || !dbId) {
+    throw new Error(`环境变量未读取到！Token存在: ${!!token}, DB存在: ${!!dbId}`);
+  }
+
+  // 1. 初始化 Notion 客户端
+  const notion = new Client({ auth: token });
+
+  // 2. 动态请求 Notion 数据
   const response = await notion.databases.query({
     database_id: dbId,
-    // 过滤出 Status 为 Published 的文章 (对应您截图中的配置)
     filter: { property: 'Status', select: { equals: 'Published' } },
   });
 
   posts = response.results.map((page: any) => ({
-    title: page.properties.Name.title[0]?.plain_text || '未命名',
-    slug: page.properties.Slug.rich_text[0]?.plain_text || page.id,
+    title: page.properties.Name?.title[0]?.plain_text || '未命名',
+    slug: page.properties.Slug?.rich_text[0]?.plain_text || page.id,
   }));
 } catch (error: any) {
   errorMsg = error.message;
-  console.error("Notion API 请求失败:", errorMsg);
+  console.error("Notion API 异常:", error);
 }
 ---
 
@@ -36,7 +43,7 @@ try {
     
     {errorMsg ? (
       <div style="color: red;">
-        <p>数据加载失败，请检查 Cloudflare 环境变量是否填写正确：</p>
+        <p>数据加载失败：</p>
         <p>{errorMsg}</p>
       </div>
     ) : posts.length === 0 ? (
@@ -45,7 +52,6 @@ try {
       <ul>
         {posts.map((post) => (
           <li style="margin-bottom: 10px;">
-            {/* 这里先用纯文本展示，等打通后再做跳转链接 */}
             <strong>{post.title}</strong> (路由: /{post.slug})
           </li>
         ))}
