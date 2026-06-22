@@ -1,17 +1,30 @@
 ---
+import { Client } from '@notionhq/client';
 
+const notion = new Client({ auth: import.meta.env.NOTION_TOKEN });
+const dbId = import.meta.env.NOTION_DATABASE_ID;
+
+// 过滤并按创建时间倒序查询
+const response = await notion.databases.query({
+  database_id: dbId,
+  filter: { property: 'Status', select: { equals: 'Published' } },
+  sorts: [{ timestamp: 'created_time', direction: 'descending' }]
+});
+
+const posts = response.results.map((page: any) => ({
+  title: page.properties.Name.title[0]?.plain_text || '未命名',
+  slug: page.properties.Slug.rich_text[0]?.plain_text || page.id,
+}));
 ---
 
-<html lang="en">
-	<head>
-		<meta charset="utf-8" />
-		<link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-		<link rel="icon" href="/favicon.ico" />
-		<meta name="viewport" content="width=device-width" />
-		<meta name="generator" content={Astro.generator} />
-		<title>Astro</title>
-	</head>
-	<body>
-		<h1>Astro</h1>
-	</body>
+<html lang="zh">
+  <head><title>Edge 博客</title></head>
+  <body>
+    <h1>我的动态博客</h1>
+    <ul>
+      {posts.map(post => (
+        <li><a href={`/posts/${post.slug}`}>{post.title}</a></li>
+      ))}
+    </ul>
+  </body>
 </html>
