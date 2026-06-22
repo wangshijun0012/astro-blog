@@ -1,7 +1,5 @@
 ---
-import { Client } from '@notionhq/client';
-
-// 🚀 核心修复：同时兼容本地开发 (import.meta.env) 和 Cloudflare 边缘环境 (Astro.locals.runtime.env)
+// 🚀 彻底抛弃笨重的 Node.js SDK，改用边缘节点原生的 Web Fetch API
 const token = import.meta.env.NOTION_TOKEN || Astro.locals.runtime?.env?.NOTION_TOKEN;
 const dbId = import.meta.env.NOTION_DATABASE_ID || Astro.locals.runtime?.env?.NOTION_DATABASE_ID;
 
@@ -9,27 +7,40 @@ let posts = [];
 let errorMsg = '';
 
 try {
-  // 增加空值拦截，防止容器崩溃
   if (!token || !dbId) {
-    throw new Error(`环境变量未读取到！Token存在: ${!!token}, DB存在: ${!!dbId}`);
+    throw new Error(`环境变量丢失！Token: ${!!token}, DB: ${!!dbId}`);
   }
 
-  // 1. 初始化 Notion 客户端
-  const notion = new Client({ auth: token });
-
-  // 2. 动态请求 Notion 数据
-  const response = await notion.databases.query({
-    database_id: dbId,
-    filter: { property: 'Status', select: { equals: 'Published' } },
+  // 1. 使用原生 fetch 直接调用 Notion API
+  const response = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Notion-Version': '2022-06-28', // Notion API 版本要求
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      filter: { property: 'Status', select: { equals: 'Published' } }
+    })
   });
 
-  posts = response.results.map((page: any) => ({
-    title: page.properties.Name?.title[0]?.plain_text || '未命名',
-    slug: page.properties.Slug?.rich_text[0]?.plain_text || page.id,
+  // 2. 捕捉 API 层面的错误
+  if (!response.ok) {
+    const errData = await response.json();
+    throw new Error(`Notion API 报错: ${response.status} - ${errData.message}`);
+  }
+
+  const data = await response.json();
+
+  // 3. 解析数据
+  posts = data.results.map((page: any) => ({
+    title: page.properties?.Name?.title[0]?.plain_text || '未命名',
+    slug: page.properties?.Slug?.rich_text[0]?.plain_text || page.id,
   }));
+
 } catch (error: any) {
   errorMsg = error.message;
-  console.error("Notion API 异常:", error);
+  console.error("数据加载异常:", errorMsg);
 }
 ---
 
@@ -39,11 +50,11 @@ try {
     <title>我的 Notion 动态博客</title>
   </head>
   <body style="font-family: sans-serif; padding: 2rem;">
-    <h1>我的动态博客</h1>
+    <h1>我的动态博客 (Edge 原生极速版)</h1>
     
     {errorMsg ? (
-      <div style="color: red;">
-        <p>数据加载失败：</p>
+      <div style="color: white; background-color: #ff4d4f; padding: 1rem; border-radius: 4px;">
+        <p><strong>数据加载失败：</strong></p>
         <p>{errorMsg}</p>
       </div>
     ) : posts.length === 0 ? (
